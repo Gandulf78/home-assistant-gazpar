@@ -21,6 +21,7 @@ from homeassistant.const import CONF_NAME, CONF_PASSWORD, CONF_USERNAME, CONF_SC
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
+from homeassistant.components.statistics import async_add_external_statistics
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ CONF_WAITTIME = "wait_time"
 CONF_TMPDIR = "tmpdir"
 CONF_LAST_N_DAYS = "lastNDays"
 CONF_DATASOURCE = "datasource"
+CONF_TARIF_KWH = "tarif_kwh"  # Cost per kWh configuration
 
 DEFAULT_SCAN_INTERVAL = timedelta(hours=4)
 DEFAULT_WAITTIME = 30
@@ -51,6 +53,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_DATASOURCE, default=DEFAULT_DATASOURCE): cv.string,  # type: ignore
     vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): cv.time_period,  # type: ignore
     vol.Optional(CONF_LAST_N_DAYS, default=DEFAULT_LAST_N_DAYS): int  # type: ignore
+    vol.Optional(CONF_TARIF_KWH, default=0.15): vol.Coerce(float),  # Default cost per kWh
 })
 
 
@@ -82,6 +85,9 @@ async def async_setup_platform(hass, config, add_entities, discovery_info=None):
         datasource = config[CONF_DATASOURCE]
         _LOGGER.debug(f"datasource={datasource}")
 
+        tarif_kwh = config[CONF_TARIF_KWH]
+        _LOGGER.debug(f"tarif_kwh={tarif_kwh}")
+
         scan_interval = config[CONF_SCAN_INTERVAL]
         _LOGGER.debug(f"scan_interval={scan_interval}")
 
@@ -91,7 +97,7 @@ async def async_setup_platform(hass, config, add_entities, discovery_info=None):
         version = await Manifest.version()
         _LOGGER.debug(f"version={version}")
 
-        account = GazparAccount(hass, name, username, password, pceIdentifier, wait_time, tmpdir, scan_interval, lastNDays, version, datasource)
+        account = GazparAccount(hass, name, username, password, pceIdentifier, wait_time, tmpdir, scan_interval, lastNDays, version, datasource, tarif_kwh)
         add_entities(account.sensors, True)
 
         if hass is not None:
@@ -111,7 +117,7 @@ class GazparAccount:
     """Representation of a Gazpar account."""
 
     # ----------------------------------
-    def __init__(self, hass, name: str, username: str, password: str, pceIdentifier: str, wait_time: int, tmpdir: str, scan_interval: timedelta, lastNDays: int, version: str, datasource: str):
+    def __init__(self, hass, name: str, username: str, password: str, pceIdentifier: str, wait_time: int, tmpdir: str, scan_interval: timedelta, lastNDays: int, version: str, datasource: str, tarif_kwh: float):
         """Initialise the Gazpar account."""
         self._name = name
         self._username = username
@@ -126,6 +132,7 @@ class GazparAccount:
         self._dataByFrequency = {}
         self.sensors = []
         self._errorMessages = []
+        self.tarif_kwh = tarif_kwh
 
         self.sensors.append(
             GazparSensor(name, PropertyName.ENERGY.value, UnitOfEnergy.KILO_WATT_HOUR, self))
@@ -205,6 +212,49 @@ class GazparAccount:
         return self._errorMessages
 
 
+async def import_historic_data(self, hass):
+    """Import missing historical data into Home Assistant."""
+
+    _LOGGER.info("Importing missing historic data into Home Assistant")
+
+    # Récupération du tarif depuis l'objet account
+    tarif_kwh = self._account.tarif_kwh
+
+    # Préparation des données au format attendu par Home Assistant
+    statistic_id = f"sensor.{self._name.lower().replace(' ', '_')}"
+    metadata = {
+        "source": "gazpar",
+        "name": self._name,
+        "unit_of_measurement": self._unit,
+        "statistic_id": statistic_id,
+    }
+
+    statistics = []
+    for reading in self._dataByFrequency.get(Frequency.DAILY.value, []):
+        try:
+            # Parsing date and ensuring format
+            dt = datetime.strptime(reading["time_period"], GazparSensor.DATE_FORMAT)
+            # Conversion de la consommation en kWh selon le tarif
+            value = float(reading["value"]) * tarif_kwh
+
+            statistics.append({
+                "start": dt.isoformat(),
+                "state": value,
+                "sum": value,  # Peut être ajusté selon les données disponibles
+            })
+        except Exception as e:
+            _LOGGER.error(f"Error processing historical data: {e}")
+
+    # Intégration des données historiques via le système Home Assistant
+    if statistics:
+        await hass.async_add_executor_job(
+            async_add_external_statistics, metadata, statistics
+        )
+        _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
+    else:
+        _LOGGER.warning("No valid historical data found to import.")
+
+
 # --------------------------------------------------------------------------------------------
 class GazparSensor(Entity):
     """Representation of a sensor entity for Linky."""
@@ -275,6 +325,13 @@ class GazparSensor(Entity):
                 else:
                     self._dataByFrequency[frequency.value] = []
                     _LOGGER.debug(f"No {frequency} data available yet for update")
+
+            # Importer les données historiques après la mise à jour
+            if Frequency.DAILY.value in self._dataByFrequency:
+                hass = self._account.hass  # Assurez-vous que le `hass` est accessible
+                tarif_kwh = 1  # À adapter selon la configuration utilisateur
+                asyncio.run(self.import_historic_data(hass))
+
 
         except BaseException:
             _LOGGER.error(f"Failed to update HA data. The exception has been raised: {traceback.format_exc()}")
