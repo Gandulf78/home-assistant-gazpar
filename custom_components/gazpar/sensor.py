@@ -334,35 +334,28 @@ class GazparSensor(Entity):
                 except Exception as e:
                     _LOGGER.error(f"Error processing historical data: {e}")
 
-            # Importation des données historiques
+            # Envoi des données via la méthode `send()`
             if statistics:
-                for statistic_id, data in {statistic_id: {"name": self._name, "data": statistics}}.items():
-                    metadata = {
-                        "has_mean": False,
-                        "has_sum": True,
-                        "name": data["name"],
-                        "source": "gazpar",
-                        "statistic_id": statistic_id,
-                        "unit_of_measurement": self._unit,
-                    }
-                    import_statistics = {
-                        "id": self.id,  # Assurez-vous que self.id est défini ou utilisez un identifiant unique
-                        "type": "recorder/import_statistics",
-                        "metadata": metadata,
-                        "stats": [stat["state"] for stat in data["data"]],
-                    }
-
-                    # Envoi des données via la méthode `send()`
-                    await hass.async_add_executor_job(
-                        async_add_external_statistics, metadata, statistics
+                for chunk in self.chunk_data(statistics):
+                    self.send(
+                        {
+                            "id": self.id,  # Assurez-vous que self.id est défini ou utilisez un identifiant unique
+                            "type": "recorder/import_statistics",
+                            "metadata": metadata,
+                            "stats": list(chunk),
+                        }
                     )
-                    _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
+                _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
             else:
                 _LOGGER.warning("No valid historical data found to import.")
 
-        except BaseException:
-            # Capture toutes les erreurs inattendues
+        except Exception as e:
             _LOGGER.error(f"Failed to import historic data. Exception: {traceback.format_exc()}")
+
+    def chunk_data(self, data, chunk_size=100):
+        """Divide data into chunks for easier handling."""
+        for i in range(0, len(data), chunk_size):
+            yield data[i:i + chunk_size]
 
     # ----------------------------------
     @staticmethod
