@@ -350,8 +350,8 @@ class GazparSensor(Entity):
 
             # Importer les données historiques après la mise à jour
             if Frequency.DAILY.value in self._dataByFrequency:
-                hass = self._account.hass  # Assurez-vous que le `hass` est accessible
-                asyncio.run(self.import_historic_data(self._account._hass))
+                hass = self._account._hass
+                asyncio.run(self.import_historic_data(hass))
 
 
         except BaseException:
