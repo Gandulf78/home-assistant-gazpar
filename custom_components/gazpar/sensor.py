@@ -21,7 +21,6 @@ from homeassistant.const import CONF_NAME, CONF_PASSWORD, CONF_USERNAME, CONF_SC
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
-from homeassistant.components.statistics import async_add_external_statistics
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -245,14 +244,30 @@ async def import_historic_data(self, hass):
         except Exception as e:
             _LOGGER.error(f"Error processing historical data: {e}")
 
-    # Intégration des données historiques via le système Home Assistant
+    # Importation des données historiques
     if statistics:
-        await hass.async_add_executor_job(
-            async_add_external_statistics, metadata, statistics
-        )
+        # Envoi des données via la méthode `send()`
+        for statistic_id, data in {statistic_id: {"name": self._name, "data": statistics}}.items():
+            metadata = {
+                "has_mean": False,
+                "has_sum": True,
+                "name": data["name"],
+                "source": "gazpar",
+                "statistic_id": statistic_id,
+                "unit_of_measurement": self._unit,
+            }
+            import_statistics = {
+                "id": self.id,  # Assurez-vous que self.id est défini ou utilisez un identifiant unique
+                "type": "recorder/import_statistics",
+                "metadata": metadata,
+                "stats": [stat["state"] for stat in data["data"]],
+            }
+            self.send(import_statistics)
+
         _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
     else:
         _LOGGER.warning("No valid historical data found to import.")
+
 
 
 # --------------------------------------------------------------------------------------------
