@@ -3,6 +3,7 @@
 ## $\text{\color{green}{!!! This library is working again. CAPTCHA has been removed !!!}}$
 
 GrDF Gazpar integration permits to integrate in Home Assistant all your gas consumption data.
+This fork adds the gas consumption in the historical for display in the Homeassistant Energy dashboard.
 
 From version 1.2.0, it is compatible with [Lovelace Garpar Card](https://github.com/ssenart/lovelace-gazpar-card).
 
