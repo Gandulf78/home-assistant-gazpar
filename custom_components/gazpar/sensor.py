@@ -52,7 +52,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_TMPDIR): cv.string,
     vol.Optional(CONF_DATASOURCE, default=DEFAULT_DATASOURCE): cv.string,  # type: ignore
     vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): cv.time_period,  # type: ignore
-    vol.Optional(CONF_LAST_N_DAYS, default=DEFAULT_LAST_N_DAYS): int  # type: ignore
+    vol.Optional(CONF_LAST_N_DAYS, default=DEFAULT_LAST_N_DAYS): int,  # type: ignore
     vol.Optional(CONF_TARIF_KWH, default=0.15): vol.Coerce(float),  # Default cost per kWh
 })
 
