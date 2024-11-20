@@ -131,7 +131,8 @@ class GazparAccount:
         self._dataByFrequency = {}
         self.sensors = []
         self._errorMessages = []
-        self.tarif_kwh = tarif_kwh
+        self._tarif_kwh = tarif_kwh
+        self._hass = hass
 
         self.sensors.append(
             GazparSensor(name, PropertyName.ENERGY.value, UnitOfEnergy.KILO_WATT_HOUR, self))
@@ -217,7 +218,7 @@ async def import_historic_data(self, hass):
     _LOGGER.info("Importing missing historic data into Home Assistant")
 
     # Récupération du tarif depuis l'objet account
-    tarif_kwh = self._account.tarif_kwh
+    tarif_kwh = self._account._tarif_kwh
 
     # Préparation des données au format attendu par Home Assistant
     statistic_id = f"sensor.{self._name.lower().replace(' ', '_')}"
@@ -262,7 +263,13 @@ async def import_historic_data(self, hass):
                 "metadata": metadata,
                 "stats": [stat["state"] for stat in data["data"]],
             }
-            self.send(import_statistics)
+            if statistics:
+                await hass.async_add_executor_job(
+                    async_add_external_statistics, metadata, statistics
+                )
+                _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
+            else:
+                _LOGGER.warning("No valid historical data found to import.")
 
         _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
     else:
@@ -344,8 +351,7 @@ class GazparSensor(Entity):
             # Importer les données historiques après la mise à jour
             if Frequency.DAILY.value in self._dataByFrequency:
                 hass = self._account.hass  # Assurez-vous que le `hass` est accessible
-                tarif_kwh = 1  # À adapter selon la configuration utilisateur
-                asyncio.run(self.import_historic_data(hass))
+                asyncio.run(self.import_historic_data(self._account._hass))
 
 
         except BaseException:
