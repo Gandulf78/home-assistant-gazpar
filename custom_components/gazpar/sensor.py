@@ -131,8 +131,8 @@ class GazparAccount:
         self._dataByFrequency = {}
         self.sensors = []
         self._errorMessages = []
-        self._tarif_kwh = tarif_kwh
-        self._hass = hass
+        self.tarif_kwh = tarif_kwh
+        self.hass = hass
 
         self.sensors.append(
             GazparSensor(name, PropertyName.ENERGY.value, UnitOfEnergy.KILO_WATT_HOUR, self))
@@ -211,72 +211,6 @@ class GazparAccount:
         """Return the error messages."""
         return self._errorMessages
 
-
-async def import_historic_data(self, hass):
-    """Import missing historical data into Home Assistant."""
-
-    _LOGGER.info("Importing missing historic data into Home Assistant")
-
-    # Récupération du tarif depuis l'objet account
-    tarif_kwh = self._account._tarif_kwh
-
-    # Préparation des données au format attendu par Home Assistant
-    statistic_id = f"sensor.{self._name.lower().replace(' ', '_')}"
-    metadata = {
-        "source": "gazpar",
-        "name": self._name,
-        "unit_of_measurement": self._unit,
-        "statistic_id": statistic_id,
-    }
-
-    statistics = []
-    for reading in self._dataByFrequency.get(Frequency.DAILY.value, []):
-        try:
-            # Parsing date and ensuring format
-            dt = datetime.strptime(reading["time_period"], GazparSensor.DATE_FORMAT)
-            # Conversion de la consommation en kWh selon le tarif
-            value = float(reading["value"]) * tarif_kwh
-
-            statistics.append({
-                "start": dt.isoformat(),
-                "state": value,
-                "sum": value,  # Peut être ajusté selon les données disponibles
-            })
-        except Exception as e:
-            _LOGGER.error(f"Error processing historical data: {e}")
-
-    # Importation des données historiques
-    if statistics:
-        # Envoi des données via la méthode `send()`
-        for statistic_id, data in {statistic_id: {"name": self._name, "data": statistics}}.items():
-            metadata = {
-                "has_mean": False,
-                "has_sum": True,
-                "name": data["name"],
-                "source": "gazpar",
-                "statistic_id": statistic_id,
-                "unit_of_measurement": self._unit,
-            }
-            import_statistics = {
-                "id": self.id,  # Assurez-vous que self.id est défini ou utilisez un identifiant unique
-                "type": "recorder/import_statistics",
-                "metadata": metadata,
-                "stats": [stat["state"] for stat in data["data"]],
-            }
-            if statistics:
-                await hass.async_add_executor_job(
-                    async_add_external_statistics, metadata, statistics
-                )
-                _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
-            else:
-                _LOGGER.warning("No valid historical data found to import.")
-
-        _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
-    else:
-        _LOGGER.warning("No valid historical data found to import.")
-
-
-
 # --------------------------------------------------------------------------------------------
 class GazparSensor(Entity):
     """Representation of a sensor entity for Linky."""
@@ -296,7 +230,8 @@ class GazparSensor(Entity):
             Frequency.MONTHLY: GazparSensor.__selectMonthly,
             Frequency.YEARLY: GazparSensor.__selectYearly,
         }
-
+        self._tarif_kwh = self._account.tarif_kwh
+        self._hass = self._account.hass
     # ----------------------------------
     @property
     def name(self):
@@ -350,9 +285,71 @@ class GazparSensor(Entity):
 
             # Importer les données historiques après la mise à jour
             if Frequency.DAILY.value in self._dataByFrequency:
-                hass = self._account._hass
+                hass = self._hass
                 asyncio.run(self.import_historic_data(hass))
 
+        async def import_historic_data(self, hass):
+            """Import missing historical data into Home Assistant."""
+
+            _LOGGER.info("Importing missing historic data into Home Assistant")
+
+            # Récupération du tarif depuis l'objet account
+            tarif_kwh = self._tarif_kwh
+
+            # Préparation des données au format attendu par Home Assistant
+            statistic_id = f"sensor.{self._name.lower().replace(' ', '_')}"
+            metadata = {
+                "source": "gazpar",
+                "name": self._name,
+                "unit_of_measurement": self._unit,
+                "statistic_id": statistic_id,
+            }
+
+            statistics = []
+            for reading in self._dataByFrequency.get(Frequency.DAILY.value, []):
+                try:
+                    # Parsing date and ensuring format
+                    dt = datetime.strptime(reading["time_period"], GazparSensor.DATE_FORMAT)
+                    # Conversion de la consommation en kWh selon le tarif
+                    value = float(reading["value"]) * tarif_kwh
+
+                    statistics.append({
+                        "start": dt.isoformat(),
+                        "state": value,
+                        "sum": value,  # Peut être ajusté selon les données disponibles
+                    })
+                except Exception as e:
+                    _LOGGER.error(f"Error processing historical data: {e}")
+
+            # Importation des données historiques
+            if statistics:
+                # Envoi des données via la méthode `send()`
+                for statistic_id, data in {statistic_id: {"name": self._name, "data": statistics}}.items():
+                    metadata = {
+                        "has_mean": False,
+                        "has_sum": True,
+                        "name": data["name"],
+                        "source": "gazpar",
+                        "statistic_id": statistic_id,
+                        "unit_of_measurement": self._unit,
+                    }
+                    import_statistics = {
+                        "id": self.id,  # Assurez-vous que self.id est défini ou utilisez un identifiant unique
+                        "type": "recorder/import_statistics",
+                        "metadata": metadata,
+                        "stats": [stat["state"] for stat in data["data"]],
+                    }
+                    if statistics:
+                        await hass.async_add_executor_job(
+                            async_add_external_statistics, metadata, statistics
+                        )
+                        _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
+                    else:
+                        _LOGGER.warning("No valid historical data found to import.")
+
+                _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
+            else:
+                _LOGGER.warning("No valid historical data found to import.")
 
         except BaseException:
             _LOGGER.error(f"Failed to update HA data. The exception has been raised: {traceback.format_exc()}")
