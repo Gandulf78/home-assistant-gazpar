@@ -212,11 +212,28 @@ class GazparAccount:
         return self._errorMessages
 
 # --------------------------------------------------------------------------------------------
+import asyncio
+import logging
+import traceback
+from datetime import datetime
+from homeassistant.helpers.entity import Entity
+from homeassistant.util import async_add_external_statistics
+from homeassistant.const import ICON_GAS
+
+# Assurez-vous d'importer correctement vos autres classes, comme `Frequency`, `GazparAccount`, `Util`, etc.
+
+_LOGGER = logging.getLogger(__name__)
+
 class GazparSensor(Entity):
     """Representation of a sensor entity for Linky."""
 
-    # ----------------------------------
-    def __init__(self, name, identifier, unit, account: GazparAccount):
+    MAX_DAILY_READINGS = 14
+    MAX_WEEKLY_READINGS = 20
+    MAX_MONTHLY_READINGS = 24
+    MAX_YEARLY_READINGS = 5
+    DATE_FORMAT = "%d/%m/%Y"
+
+    def __init__(self, name, identifier, unit, account: 'GazparAccount'):
         """Initialize the sensor."""
         self._name = name
         self._identifier = identifier
@@ -232,17 +249,15 @@ class GazparSensor(Entity):
         }
         self._tarif_kwh = self._account.tarif_kwh
         self._hass = self._account.hass
-    # ----------------------------------
+
     @property
     def name(self):
         """Return the name of the sensor."""
         return self._name
 
-    # ----------------------------------
     @property
     def state(self):
         """Return the state of the sensor."""
-
         return Util.toState(self._dataByFrequency)
 
     @property
@@ -250,26 +265,20 @@ class GazparSensor(Entity):
         """Return the unit of measurement."""
         return self._unit
 
-    # ----------------------------------
     @property
     def icon(self):
         """Return the icon of the sensor."""
         return ICON_GAS
 
-    # ----------------------------------
     @property
     def extra_state_attributes(self):
         """Return the state attributes of the sensor."""
-
         return Util.toAttributes(self._account.username, self._account.pceIdentifier, self._account.version, self._dataByFrequency, self._account.errorMessages)
 
-    # ----------------------------------
     def update(self):
         """Retrieve the new data for the sensor."""
-
         _LOGGER.debug("HA requests its data to be updated...")
         try:
-
             # PyGazpar delivers data sorted by ascending dates.
             # Below, we reverse the order. We want most recent at the top.
             # And we select a subset of the readings by frequency.
@@ -286,11 +295,15 @@ class GazparSensor(Entity):
             # Importer les données historiques après la mise à jour
             if Frequency.DAILY.value in self._dataByFrequency:
                 hass = self._hass
-                asyncio.run(self.import_historic_data(hass))
+                # Utilisez asyncio.create_task au lieu de asyncio.run
+                asyncio.create_task(self.import_historic_data(hass))
 
-        async def import_historic_data(self, hass):
-            """Import missing historical data into Home Assistant."""
+        except Exception as e:
+            _LOGGER.error(f"Failed to update HA data. The exception has been raised: {traceback.format_exc()}")
 
+    async def import_historic_data(self, hass):
+        """Import missing historical data into Home Assistant."""
+        try:
             _LOGGER.info("Importing missing historic data into Home Assistant")
 
             # Récupération du tarif depuis l'objet account
@@ -323,7 +336,6 @@ class GazparSensor(Entity):
 
             # Importation des données historiques
             if statistics:
-                # Envoi des données via la méthode `send()`
                 for statistic_id, data in {statistic_id: {"name": self._name, "data": statistics}}.items():
                     metadata = {
                         "has_mean": False,
@@ -339,27 +351,18 @@ class GazparSensor(Entity):
                         "metadata": metadata,
                         "stats": [stat["state"] for stat in data["data"]],
                     }
-                    if statistics:
-                        await hass.async_add_executor_job(
-                            async_add_external_statistics, metadata, statistics
-                        )
-                        _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
-                    else:
-                        _LOGGER.warning("No valid historical data found to import.")
 
-                _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
+                    # Envoi des données via la méthode `send()`
+                    await hass.async_add_executor_job(
+                        async_add_external_statistics, metadata, statistics
+                    )
+                    _LOGGER.info(f"Imported {len(statistics)} historical readings into Home Assistant")
             else:
                 _LOGGER.warning("No valid historical data found to import.")
 
         except BaseException:
-            _LOGGER.error(f"Failed to update HA data. The exception has been raised: {traceback.format_exc()}")
-
-    MAX_DAILY_READINGS = 14
-    MAX_WEEKLY_READINGS = 20
-    MAX_MONTHLY_READINGS = 24
-    MAX_YEARLY_READINGS = 5
-
-    DATE_FORMAT = "%d/%m/%Y"
+            # Capture toutes les erreurs inattendues
+            _LOGGER.error(f"Failed to import historic data. Exception: {traceback.format_exc()}")
 
     # ----------------------------------
     @staticmethod
@@ -374,25 +377,20 @@ class GazparSensor(Entity):
     # ----------------------------------
     @staticmethod
     def __selectWeekly(data: list[dict[str, Any]]) -> list[dict[str, Any]]:
-
         res = []
 
         previousYearWeekDate = []
 
         index = 0
         for reading in data:
-
             weekDate = GazparSensor.__getIsoCalendar(reading["time_period"])
 
-            if (index < GazparSensor.MAX_WEEKLY_READINGS / 2):
-
+            if index < GazparSensor.MAX_WEEKLY_READINGS / 2:
                 weekDate = (weekDate.weekday, weekDate.week, weekDate.year - 1)
-
                 previousYearWeekDate.append(weekDate)
-
                 res.append(reading)
             else:
-                if (previousYearWeekDate.count((weekDate.weekday, weekDate.week, weekDate.year)) > 0):
+                if previousYearWeekDate.count((weekDate.weekday, weekDate.week, weekDate.year)) > 0:
                     res.append(reading)
 
             index += 1
@@ -412,7 +410,6 @@ class GazparSensor(Entity):
     # ----------------------------------
     @staticmethod
     def __getIsoCalendar(weekly_time_period):
-
         date = datetime.strptime(weekly_time_period.split(" ")[1], GazparSensor.DATE_FORMAT)
-
         return date.isocalendar()
+
