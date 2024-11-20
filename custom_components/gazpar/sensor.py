@@ -296,12 +296,12 @@ class GazparSensor(Entity):
             if Frequency.DAILY.value in self._dataByFrequency:
                 hass = self._hass
                 # Utilisez asyncio.create_task au lieu de asyncio.run
-                asyncio.create_task(self.import_historic_data(hass))
+                asyncio.create_task(self.import_historic_data)
 
         except Exception as e:
             _LOGGER.error(f"Failed to update HA data. The exception has been raised: {traceback.format_exc()}")
 
-    async def import_historic_data(self, hass):
+    async def import_historic_data(self):
         """Import missing historical data into Home Assistant."""
         try:
             _LOGGER.info("Importing missing historic data into Home Assistant")
@@ -337,7 +337,7 @@ class GazparSensor(Entity):
             # Envoi des données via la méthode `send()`
             if statistics:
                 for chunk in self.chunk_data(statistics):
-                    self.send(
+                    self._hass.send(
                         {
                             "id": self.id,  # Assurez-vous que self.id est défini ou utilisez un identifiant unique
                             "type": "recorder/import_statistics",
