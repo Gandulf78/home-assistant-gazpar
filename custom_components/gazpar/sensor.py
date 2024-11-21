@@ -212,12 +212,12 @@ class GazparAccount:
         return self._errorMessages
 
 # --------------------------------------------------------------------------------------------
+
 import asyncio
 import logging
 import traceback
 from datetime import datetime
 from homeassistant.helpers.entity import Entity
-from homeassistant.const import ICON_GAS
 
 # Assurez-vous d'importer correctement vos autres classes, comme `Frequency`, `GazparAccount`, `Util`, etc.
 
