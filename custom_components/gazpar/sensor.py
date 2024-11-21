@@ -217,7 +217,6 @@ import logging
 import traceback
 from datetime import datetime
 from homeassistant.helpers.entity import Entity
-from homeassistant.util import async_add_external_statistics
 from homeassistant.const import ICON_GAS
 
 # Assurez-vous d'importer correctement vos autres classes, comme `Frequency`, `GazparAccount`, `Util`, etc.
