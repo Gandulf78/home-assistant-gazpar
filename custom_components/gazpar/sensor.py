@@ -295,7 +295,11 @@ class GazparSensor(Entity):
             if Frequency.DAILY.value in self._dataByFrequency:
                 hass = self._hass
                 # Utilisez asyncio.create_task au lieu de asyncio.run
-                asyncio.create_task(self.import_historic_data)
+                hass.loop.call_soon_threadsafe(
+                    asyncio.run_coroutine_threadsafe,
+                    self.import_historic_data(), hass.loop
+                )
+
 
         except Exception as e:
             _LOGGER.error(f"Failed to update HA data. The exception has been raised: {traceback.format_exc()}")
